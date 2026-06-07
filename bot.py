@@ -330,7 +330,7 @@ def schedule_user(user_id, tz_str, sleep_time_str, interval_hours, day_number):
 
     # Первый чек-ин — через интервал от текущего момента
     first_checkin = now + timedelta(hours=interval_hours)
-    asyncio.ensure_future(schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str))
+    asyncio.get_event_loop().create_task(schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str))
 
 async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str):
     tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
@@ -395,7 +395,7 @@ async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, i
         if sleep_dt_new <= now2:
             sleep_dt_new += timedelta(days=1)
         summary_dt_new = sleep_dt_new - timedelta(minutes=30)
-        asyncio.ensure_future(schedule_checkins_loop(user_id, first_checkin_new, sleep_dt_new, summary_dt_new, interval_hours, new_day, tz_str_user))
+        asyncio.get_event_loop().create_task(schedule_checkins_loop(user_id, first_checkin_new, sleep_dt_new, summary_dt_new, interval_hours, new_day, tz_str_user))
 
 
 # --- Handlers ---
@@ -509,7 +509,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Марафон начинается. 7 дней осознанности.\n"
             f"Первый чек-ин придёт в {first_str}. ✨"
         )
-        asyncio.ensure_future(schedule_user_async(user_id, tz, sleep_time, interval, 1))
+        asyncio.get_event_loop().create_task(schedule_user_async(user_id, tz, sleep_time, interval, 1))
         return
 
     # --- Активный чек-ин ---
