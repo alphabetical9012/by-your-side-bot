@@ -546,6 +546,66 @@ async def schedule_user_async(user_id, tz, sleep_time, interval, day):
     schedule_user(user_id, tz, sleep_time, interval, day)
 
 # --- Запуск ---
+async def restore_schedules():
+    """Восстанавливает расписание для всех активных пользователей после перезапуска"""
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT user_id, timezone, sleep_time, interval_hours, day_number
+                    FROM marathon_users
+                    WHERE is_active = TRUE
+                """)
+                users = cur.fetchall()
+        
+        if not users:
+            logger.info("Нет активных пользователей для восстановления расписания")
+            return
+            
+        for user_id, tz_str, sleep_time, interval_hours, day_number in users:
+            logger.info(f"Восстанавливаем расписание для {user_id}, день {day_number}")
+            asyncio.get_event_loop().create_task(
+                restore_user_schedule(user_id, tz_str, sleep_time, interval_hours, day_number)
+            )
+    except Exception as e:
+        logger.error(f"Ошибка восстановления расписаний: {e}")
+
+async def restore_user_schedule(user_id, tz_str, sleep_time_str, interval_hours, day_number):
+    """Восстанавливает расписание конкретного пользователя с учётом текущего времени"""
+    try:
+        tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
+        now = datetime.now(tz)
+        sleep_h, sleep_m = map(int, sleep_time_str.split(":"))
+        sleep_dt = now.replace(hour=sleep_h, minute=sleep_m, second=0, microsecond=0)
+        if sleep_dt <= now:
+            sleep_dt += timedelta(days=1)
+        summary_dt = sleep_dt - timedelta(minutes=30)
+
+        # Если уже прошло время итога дня — не запускаем чек-ины
+        if now >= summary_dt:
+            logger.info(f"Пользователь {user_id}: время итога уже прошло, ждём следующего дня")
+            return
+
+        # Находим ближайший чек-ин с учётом интервала
+        # Считаем от начала дня (7:00) с шагом interval_hours
+        day_start = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if day_start > now:
+            day_start -= timedelta(days=1)
+        
+        next_checkin = day_start
+        while next_checkin <= now:
+            next_checkin += timedelta(hours=interval_hours)
+        
+        # Если следующий чек-ин после итога дня — не запускаем
+        if next_checkin >= summary_dt:
+            logger.info(f"Пользователь {user_id}: следующий чек-ин после итога, пропускаем")
+            return
+
+        logger.info(f"Восстановлен чек-ин для {user_id} в {next_checkin}")
+        await schedule_checkins_loop(user_id, next_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str)
+    except Exception as e:
+        logger.error(f"Ошибка восстановления расписания {user_id}: {e}")
+
 async def run_bot():
     global bot_app
     bot_app = ApplicationBuilder().token(TOKEN).build()
@@ -556,6 +616,9 @@ async def run_bot():
     await bot_app.initialize()
     await bot_app.start()
     await bot_app.updater.start_polling()
+    # Восстанавливаем расписания после перезапуска
+    await asyncio.sleep(2)
+    await restore_schedules()
     await asyncio.Event().wait()
 
 def main():
