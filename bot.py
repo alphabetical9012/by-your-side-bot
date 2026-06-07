@@ -328,11 +328,12 @@ def schedule_user(user_id, tz_str, sleep_time_str, interval_hours, day_number):
         sleep_dt += timedelta(days=1)
     summary_dt = sleep_dt - timedelta(minutes=30)
 
-    # Первый чек-ин
+    # Первый чек-ин — через интервал от текущего момента
     first_checkin = now + timedelta(hours=interval_hours)
-    asyncio.ensure_future(schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz))
+    asyncio.ensure_future(schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str))
 
-async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz):
+async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str):
+    tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
     current = first_checkin
     while current < sleep_dt - timedelta(minutes=30):
         wait = (current - datetime.now(tz)).total_seconds()
@@ -355,11 +356,11 @@ async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, i
         await asyncio.sleep(wait)
     await send_daily_summary(user_id, day_number)
 
-    # Следующий день или финал
-    await asyncio.sleep(60 * 60)  # час паузы
+    # После итога — тишина до 7:00 следующего дня
     user = get_user(user_id)
     if not user:
         return
+
     if day_number >= 7:
         await send_marathon_end(user_id)
         with get_conn() as conn:
@@ -372,10 +373,30 @@ async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, i
             with conn.cursor() as cur:
                 cur.execute("UPDATE marathon_users SET day_number = %s WHERE user_id = %s", (new_day, user_id))
             conn.commit()
+
+        # Ждём 7:00 по времени пользователя
+        now = datetime.now(tz)
+        morning_dt = now.replace(hour=7, minute=0, second=0, microsecond=0)
+        if morning_dt <= now:
+            morning_dt += timedelta(days=1)
+        wait = (morning_dt - datetime.now(tz)).total_seconds()
+        if wait > 0:
+            await asyncio.sleep(wait)
+
         await send_morning(user_id, new_day)
-        tz_str = user["timezone"]
+
+        # Первый чек-ин через интервал после утреннего сообщения
+        first_checkin_new = datetime.now(tz) + timedelta(hours=interval_hours)
+        tz_str_user = user["timezone"]
         sleep_time_str = user["sleep_time"]
-        schedule_user(user_id, tz_str, sleep_time_str, interval_hours, new_day)
+        sleep_h, sleep_m = map(int, sleep_time_str.split(":"))
+        now2 = datetime.now(tz)
+        sleep_dt_new = now2.replace(hour=sleep_h, minute=sleep_m, second=0, microsecond=0)
+        if sleep_dt_new <= now2:
+            sleep_dt_new += timedelta(days=1)
+        summary_dt_new = sleep_dt_new - timedelta(minutes=30)
+        asyncio.ensure_future(schedule_checkins_loop(user_id, first_checkin_new, sleep_dt_new, summary_dt_new, interval_hours, new_day, tz_str_user))
+
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
