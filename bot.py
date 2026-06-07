@@ -6,6 +6,7 @@ import random
 from datetime import datetime, timedelta
 import pytz
 import psycopg2
+import json
 from flask import Flask
 from telegram import Update
 from telegram.ext import (
@@ -157,7 +158,7 @@ def set_state(user_id, state, data=None):
                 INSERT INTO marathon_state (user_id, state, data)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (user_id) DO UPDATE SET state = EXCLUDED.state, data = EXCLUDED.data
-            """, (user_id, state, data))
+            """, (user_id, state, json.dumps(data)))
         conn.commit()
 
 def save_message(user_id, role, content, day_number):
