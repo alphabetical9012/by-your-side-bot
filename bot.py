@@ -319,18 +319,25 @@ async def send_marathon_end(user_id):
     except Exception as e:
         logger.error(f"Ошибка финала марафона {user_id}: {e}")
 
-def schedule_user(user_id, tz_str, sleep_time_str, interval_hours, day_number):
-    tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
-    now = datetime.now(tz)
-    sleep_h, sleep_m = map(int, sleep_time_str.split(":"))
-    sleep_dt = now.replace(hour=sleep_h, minute=sleep_m, second=0, microsecond=0)
-    if sleep_dt <= now:
-        sleep_dt += timedelta(days=1)
-    summary_dt = sleep_dt - timedelta(minutes=30)
+async def start_schedule(user_id, tz_str, sleep_time_str, interval_hours, day_number):
+    logger.info(f"Запуск расписания для {user_id}, день {day_number}, интервал {interval_hours}ч")
+    try:
+        tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
+        now = datetime.now(tz)
+        sleep_h, sleep_m = map(int, sleep_time_str.split(":"))
+        sleep_dt = now.replace(hour=sleep_h, minute=sleep_m, second=0, microsecond=0)
+        if sleep_dt <= now:
+            sleep_dt += timedelta(days=1)
+        summary_dt = sleep_dt - timedelta(minutes=30)
+        first_checkin = now + timedelta(hours=interval_hours)
+        logger.info(f"Первый чек-ин для {user_id} в {first_checkin}")
+        await schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str)
+    except Exception as e:
+        logger.error(f"Ошибка запуска расписания {user_id}: {e}")
 
-    # Первый чек-ин — через интервал от текущего момента
-    first_checkin = now + timedelta(hours=interval_hours)
-    asyncio.get_event_loop().create_task(schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str))
+def schedule_user(user_id, tz_str, sleep_time_str, interval_hours, day_number):
+    logger.info(f"schedule_user вызван для {user_id}")
+    asyncio.get_event_loop().create_task(start_schedule(user_id, tz_str, sleep_time_str, interval_hours, day_number))
 
 async def schedule_checkins_loop(user_id, first_checkin, sleep_dt, summary_dt, interval_hours, day_number, tz_str):
     tz = pytz.timezone(tz_str if "/" in tz_str else f"Etc/GMT{-int(float(tz_str))}")
@@ -509,7 +516,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Марафон начинается. 7 дней осознанности.\n"
             f"Первый чек-ин придёт в {first_str}. ✨"
         )
-        asyncio.get_event_loop().create_task(schedule_user_async(user_id, tz, sleep_time, interval, 1))
+        asyncio.get_event_loop().create_task(start_schedule(user_id, tz, sleep_time, interval, 1))
         return
 
     # --- Активный чек-ин ---
