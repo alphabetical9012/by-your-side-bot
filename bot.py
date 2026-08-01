@@ -253,7 +253,7 @@ def ask_gemini(user_id, user_message, day_number, mode="checkin"):
         prompt = f"РЕЖИМ 1: УГЛУБЛЯЮЩИЙ ВОПРОС\n\nПользователь написал: {user_message}"
 
     model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash-lite",
+        model_name="gemini-3.1-flash-lite",
         system_instruction=SYSTEM_PROMPT
     )
     chat = model.start_chat(history=history if mode == "checkin" else [])
